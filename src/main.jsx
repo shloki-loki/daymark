@@ -54,6 +54,37 @@ function App() {
     [sent, setSent] = useState(false),
     [mobile, setMobile] = useState(false);
   useEffect(() => {
+    if (!modal && !selected) return;
+    const previous = document.activeElement;
+    const onKey = (event) => {
+      if (event.key === "Escape") {
+        setModal(false);
+        setSelected(null);
+      }
+      if (event.key !== "Tab") return;
+      const dialog = document.querySelector('[role="dialog"]');
+      const controls = [...(dialog?.querySelectorAll(
+        'button:not(:disabled),input:not(:disabled),textarea:not(:disabled),summary,[tabindex="0"]',
+      ) || [])].filter((element) => element.getClientRects().length);
+      const first = controls[0], last = controls.at(-1);
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        first?.focus();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previousOverflow;
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [modal, selected]);
+  useEffect(() => {
     if (!cloud) return;
     cloud.auth.getSession().then(({ data, error }) => {
       if (error) setError(error.message);
@@ -603,7 +634,7 @@ function App() {
               <button className="add-inline" onClick={() => setModal(true)}>
                 <Plus size={17} /> Add something to work on
               </button>
-              {!tasks.length && !loading && !demo && (
+              {!tasks.length && !loading && !demo && !error && (
                 <button className="secondary" disabled={busy} onClick={seed}>
                   Set up my six workstreams
                 </button>
@@ -623,6 +654,7 @@ function App() {
           }}
         >
           <Detail
+            error={error}
             key={task.id}
             task={task}
             logs={logs.filter((l) => l.taskId === task.id)}
@@ -634,6 +666,7 @@ function App() {
       )}
       {modal && (
         <NewTask
+          error={error}
           busy={busy}
           close={() => setModal(false)}
           save={async (t) => {
@@ -653,7 +686,7 @@ function Empty({ title, text }) {
     </div>
   );
 }
-function Detail({ task: t, logs, busy, persist, close }) {
+function Detail({ task: t, logs, busy, persist, close, error }) {
   const [learned, setLearned] = useState(""),
     [completed, setCompleted] = useState(""),
     [milestone, setMilestone] = useState(""),
@@ -687,6 +720,7 @@ function Detail({ task: t, logs, busy, persist, close }) {
           <X />
         </button>
       </div>
+      {error && <p role="alert" className="error">{error}</p>}
       <h2>{t.title}</h2>
       <p>{t.description}</p>
       <div className="detail-progress">
@@ -927,7 +961,7 @@ function Detail({ task: t, logs, busy, persist, close }) {
     </section>
   );
 }
-function NewTask({ close, save, busy }) {
+function NewTask({ close, save, busy, error }) {
   const [type, setType] = useState("continuous");
   return (
     <div className="overlay">
@@ -943,6 +977,7 @@ function NewTask({ close, save, busy }) {
             <X />
           </button>
         </div>
+        {error && <p role="alert" className="error">{error}</p>}
         <form
           onSubmit={(e) => {
             e.preventDefault();
