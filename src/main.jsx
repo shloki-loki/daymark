@@ -8,9 +8,9 @@ const KEY = "daymark:v1";
 function load() {
   try {
     const data = JSON.parse(localStorage.getItem(KEY));
-    return { goals: data?.goals ?? [], notes: data?.notes ?? [] };
+    return { goals: data?.goals ?? [], monthGoals: data?.monthGoals ?? {}, notes: data?.notes ?? [] };
   } catch {
-    return { goals: [], notes: [] };
+    return { goals: [], monthGoals: {}, notes: [] };
   }
 }
 
@@ -39,6 +39,7 @@ function App() {
 
   const { total, day, left } = countdown(now);
   const setGoals = (goals) => setData((d) => ({ ...d, goals }));
+  const setMonthGoals = (month, goals) => setData((d) => ({ ...d, monthGoals: { ...d.monthGoals, [month]: goals } }));
   const saveNote = (date, text) => setData((d) => ({ ...d, notes: upsertNote(d.notes, date, text) }));
 
   return (
@@ -48,23 +49,75 @@ function App() {
         <Backup data={data} onImport={setData} />
       </header>
 
-      <section className="hero" aria-labelledby="count">
-        <p className="eyebrow">1 Nov 2026 → 31 Dec 2027</p>
-        <h1 id="count">
-          <span className="big">{left}</span> days left
-        </h1>
-        <p className="sub">
-          Day <b>{day}</b> of {total} · {((100 * day) / total).toFixed(1)}% of the journey behind you
-        </p>
-        <Dots now={now} notes={data.notes} />
-      </section>
+      <div className="layout">
+        <section className="hero" aria-labelledby="count">
+          <p className="eyebrow">1 Nov 2026 → 31 Dec 2027</p>
+          <h1 id="count">
+            <span className="big">{left}</span> days left
+          </h1>
+          <p className="sub">
+            Day <b>{day}</b> of {total} · {((100 * day) / total).toFixed(1)}% of the journey behind you
+          </p>
+          <Dots now={now} notes={data.notes} />
+        </section>
 
-      <Goals goals={data.goals} setGoals={setGoals} />
-      <Journal now={now} notes={data.notes} saveNote={saveNote} />
+        <aside className="side run">
+          <section className="card" aria-labelledby="goals-h">
+            <h2 id="goals-h">Goals for the run</h2>
+            <p className="meta">All {total} days, to 31 Dec 2027</p>
+            <GoalList goals={data.goals} setGoals={setGoals} empty="What should be true by 31 Dec 2027?" />
+          </section>
+        </aside>
+
+        <aside className="side monthside">
+          <MonthGoals now={now} monthGoals={data.monthGoals} setMonthGoals={setMonthGoals} />
+        </aside>
+
+        <div className="journal">
+          <Journal now={now} notes={data.notes} saveNote={saveNote} />
+        </div>
+      </div>
 
       {saveError && <p className="warn">Couldn’t save in this browser (private window or storage blocked). Export a backup before closing.</p>}
       <footer className="foot">Saved in this browser only. Use Export to keep a backup or move to another device.</footer>
     </main>
+  );
+}
+
+const monthName = (key) => prettyDate(key + "-01", { month: "long", year: "numeric" });
+
+// The current month is open; every earlier month that has goals folds into a folder below it.
+function MonthGoals({ now, monthGoals, setMonthGoals }) {
+  const current = now.slice(0, 7);
+  const past = Object.keys(monthGoals)
+    .filter((k) => k < current && monthGoals[k].length)
+    .sort()
+    .reverse();
+  const tally = (goals) => `${goals.filter((g) => g.done).length}/${goals.length} done`;
+  return (
+    <section className="card" aria-labelledby="month-h">
+      <h2 id="month-h">Goals for the month</h2>
+      <p className="meta">{monthName(current)}</p>
+      <GoalList
+        key={current}
+        goals={monthGoals[current] ?? []}
+        setGoals={(g) => setMonthGoals(current, g)}
+        empty="What are you working on this month?"
+      />
+      {past.length > 0 && (
+        <div className="folders">
+          {past.map((k) => (
+            <details key={k} className="folder">
+              <summary>
+                <span>{monthName(k)}</span>
+                <span className="meta">{tally(monthGoals[k])}</span>
+              </summary>
+              <GoalList goals={monthGoals[k]} setGoals={(g) => setMonthGoals(k, g)} readOnlyAdd />
+            </details>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -96,7 +149,14 @@ function Dots({ now, notes }) {
   );
 }
 
-function Goals({ goals, setGoals }) {
+// Grow a goal's textarea to fit its text so long goals wrap instead of clipping.
+const fit = (el) => {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = el.scrollHeight + "px";
+};
+
+function GoalList({ goals, setGoals, empty, readOnlyAdd = false }) {
   const [text, setText] = useState("");
   const add = (e) => {
     e.preventDefault();
@@ -106,19 +166,26 @@ function Goals({ goals, setGoals }) {
   };
   const update = (id, patch) => setGoals(goals.map((g) => (g.id === id ? { ...g, ...patch } : g)));
   return (
-    <section className="card" aria-labelledby="goals-h">
-      <h2 id="goals-h">Goals for this run</h2>
-      {goals.length === 0 && <p className="empty">What should be true by 31 Dec 2027? Add your first goal.</p>}
+    <>
+      {goals.length === 0 && empty && <p className="empty">{empty}</p>}
       <ul className="goals">
         {goals.map((g) => (
           <li key={g.id} className={g.done ? "done" : ""}>
             <input type="checkbox" checked={g.done} onChange={() => update(g.id, { done: !g.done })} aria-label={`Mark “${g.text}” done`} />
-            <input
+            <textarea
               className="gtext"
+              rows={1}
+              ref={fit}
               defaultValue={g.text}
               aria-label="Goal"
+              onInput={(e) => fit(e.target)}
               onBlur={(e) => (e.target.value.trim() ? update(g.id, { text: e.target.value.trim() }) : (e.target.value = g.text))}
-              onKeyDown={(e) => e.key === "Enter" && e.target.blur()}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  e.target.blur();
+                }
+              }}
             />
             <button className="ghost" onClick={() => confirm(`Remove “${g.text}”?`) && setGoals(goals.filter((x) => x.id !== g.id))} aria-label="Remove goal">
               ×
@@ -126,11 +193,13 @@ function Goals({ goals, setGoals }) {
           </li>
         ))}
       </ul>
-      <form className="addgoal" onSubmit={add}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a goal…" aria-label="New goal" />
-        <button disabled={!text.trim()}>Add</button>
-      </form>
-    </section>
+      {!readOnlyAdd && (
+        <form className="addgoal" onSubmit={add}>
+          <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a goal…" aria-label="New goal" />
+          <button disabled={!text.trim()}>Add</button>
+        </form>
+      )}
+    </>
   );
 }
 
@@ -244,7 +313,8 @@ function Backup({ data, onImport }) {
     try {
       const parsed = JSON.parse(await file.text());
       if (!Array.isArray(parsed.goals) || !Array.isArray(parsed.notes)) throw new Error();
-      if (confirm(`Replace what’s here with ${parsed.goals.length} goals and ${parsed.notes.length} notes from the file?`)) onImport(parsed);
+      if (confirm(`Replace what’s here with ${parsed.goals.length} run goals and ${parsed.notes.length} notes from the file?`))
+        onImport({ ...parsed, monthGoals: parsed.monthGoals ?? {} });
     } catch {
       alert("That file isn’t a Daymark backup.");
     }
