@@ -1,112 +1,42 @@
+// The journey runs from START to END inclusive. Dates are plain "YYYY-MM-DD"
+// strings in Asia/Kolkata so a day never shifts with the browser's clock zone.
+export const START = "2026-11-01";
+export const END = "2027-12-31";
+
 export const today = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
-export const progress = (task) =>
-  task.type === "once"
-    ? task.done
-      ? 100
-      : 0
-    : task.milestones.length
-      ? Math.round(
-          (100 * task.milestones.filter((m) => m.done).length) /
-            task.milestones.length,
-        )
-      : 0;
-export const status = (task) =>
-  progress(task) === 100
-    ? "Completed"
-    : task.started || task.milestones.some((m) => m.done)
-      ? "In progress"
-      : "Not started";
-export function starterTasks() {
-  return [
-    [
-      "SQL learning",
-      "Build confidence, one query at a time.",
-      [
-        "SELECT, WHERE and sorting",
-        "Aggregations and GROUP BY",
-        "JOINs across tables",
-        "Subqueries and CTEs",
-        "Window functions",
-        "Solve a practical SQL case",
-      ],
-    ],
-    [
-      "Applying for jobs",
-      "Make your next opportunity happen.",
-      [
-        "Choose target roles",
-        "Update resume and portfolio",
-        "Shortlist 10 relevant openings",
-        "Send tailored applications",
-        "Follow up and review responses",
-      ],
-    ],
-    [
-      "Reading books",
-      "Make room for a few good pages.",
-      [
-        "Choose a book and reading goal",
-        "Read the first quarter",
-        "Reach the halfway point",
-        "Finish the book",
-        "Write down key takeaways",
-      ],
-    ],
-    [
-      "Grok bot",
-      "Build a tool for collecting Twitter content.",
-      [
-        "Define scope and permitted data access",
-        "Build a small proof of concept",
-        "Implement collection",
-        "Test and handle failures",
-        "Document and ship",
-      ],
-    ],
-    [
-      "Business case studies",
-      "Turn a messy problem into a clear decision.",
-      [
-        "Choose a case",
-        "Frame the problem",
-        "Analyze evidence and options",
-        "Develop a recommendation",
-        "Review feedback and lessons",
-      ],
-    ],
-    [
-      "Interview preparations",
-      "Practice telling your story with clarity.",
-      [
-        "Map role requirements",
-        "Prepare experience stories",
-        "Practice product questions",
-        "Practice analytical questions",
-        "Complete a mock interview",
-      ],
-    ],
-  ].map(([title, description, items], i) => ({
-    id: crypto.randomUUID(),
-    title,
-    description,
-    type: "continuous",
-    done: false,
-    started: false,
-    focus: true,
-    due: "",
-    created: new Date().toISOString(),
-    milestones: items.map((text) => ({
-      id: crypto.randomUUID(),
-      text,
-      done: false,
-    })),
-    color: i % 6,
-  }));
+
+const DAY = 86400000;
+const toUTC = (iso) => Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10));
+const fromUTC = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+export const daysBetween = (a, b) => Math.round((toUTC(b) - toUTC(a)) / DAY);
+export const addDays = (iso, n) => fromUTC(toUTC(iso) + n * DAY);
+
+// total days, today's day number (1-based, clamped), and days still to come.
+export function countdown(now = today()) {
+  const total = daysBetween(START, END) + 1;
+  const day = Math.min(Math.max(daysBetween(START, now) + 1, 0), total);
+  return { total, day, left: total - day };
 }
-export function toggleMilestone(task, id) {
-  const milestones = task.milestones.map((m) =>
-    m.id === id ? { ...m, done: !m.done } : m,
-  );
-  return { ...task, milestones, started: true };
+
+// Every day of the journey grouped by month, for the dot grid.
+export function months() {
+  const out = [];
+  for (let d = START; d <= END; d = addDays(d, 1)) {
+    const key = d.slice(0, 7);
+    if (out.at(-1)?.key !== key) out.push({ key, days: [] });
+    out.at(-1).days.push(d);
+  }
+  return out;
 }
+
+// One note per date: saving a date that already has a note replaces it.
+export function upsertNote(notes, date, text) {
+  const rest = notes.filter((n) => n.date !== date);
+  const next = text.trim() ? [...rest, { date, text: text.trim() }] : rest;
+  return next.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export const prettyDate = (iso, opts = { weekday: "short", day: "numeric", month: "short", year: "numeric" }) =>
+  new Date(toUTC(iso)).toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
